@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>VWO RAG System — ChromaDB + Nomic + Groq</title>
+<style>
+:root{--bg:#0d1117;--bg2:#161b22;--bg3:#21262d;--accent:#58a6ff;--accent2:#3fb950;--accent3:#f78166;--accent4:#d2a8ff;--text:#e6edf3;--muted:#8b949e;--border:#30363d;--chunk:#1c2128;--glow:0 0 20px rgba(88,166,255,.15)}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:'Inter','Segoe UI',sans-serif;min-height:100vh}
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* NAV */
+nav{background:var(--bg2);border-bottom:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:100}
+.logo{font-size:1.2rem;font-weight:700;background:linear-gradient(135deg,var(--accent),var(--accent4));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.nav-badge{background:var(--bg3);border:1px solid var(--border);padding:3px 10px;border-radius:20px;font-size:.72rem;color:var(--muted)}
+.status-dot{width:8px;height:8px;border-radius:50%;background:#f78166;margin-left:auto;transition:.3s}
+.status-dot.ok{background:var(--accent2);box-shadow:0 0 8px var(--accent2)}
+#status-text{font-size:.78rem;color:var(--muted)}
+
+/* LAYOUT */
+.container{max-width:1400px;margin:0 auto;padding:24px 20px;display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media(max-width:900px){.container{grid-template-columns:1fr}}
+.full{grid-column:1/-1}
+
+/* CARDS */
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.card-header{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;background:var(--bg3)}
+.card-title{font-size:.92rem;font-weight:600;color:var(--text)}
+.badge{font-size:.68rem;padding:2px 8px;border-radius:20px;font-weight:600}
+.badge-blue{background:rgba(88,166,255,.15);color:var(--accent);border:1px solid rgba(88,166,255,.3)}
+.badge-green{background:rgba(63,185,80,.15);color:var(--accent2);border:1px solid rgba(63,185,80,.3)}
+.badge-purple{background:rgba(210,168,255,.15);color:var(--accent4);border:1px solid rgba(210,168,255,.3)}
+.badge-red{background:rgba(247,129,102,.15);color:var(--accent3);border:1px solid rgba(247,129,102,.3)}
+.card-body{padding:16px}
+
+/* DB STATS */
+.stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.stat-item{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center}
+.stat-num{font-size:1.8rem;font-weight:700;color:var(--accent)}
+.stat-label{font-size:.72rem;color:var(--muted);margin-top:2px}
+.stat-sub{font-size:.68rem;color:var(--muted);margin-top:6px;word-break:break-all}
+
+/* CHUNK VIEWER */
+.chunk-controls{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.search-input{flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:.85rem;outline:none;transition:.2s}
+.search-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(88,166,255,.12)}
+.btn{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:7px 14px;border-radius:8px;cursor:pointer;font-size:.82rem;transition:.2s}
+.btn:hover{background:var(--bg);border-color:var(--accent)}
+.btn-primary{background:linear-gradient(135deg,#1f6feb,#388bfd);border:none;color:#fff;font-weight:600}
+.btn-primary:hover{opacity:.9;transform:translateY(-1px)}
+.btn-primary:active{transform:translateY(0)}
+.chunk-list{max-height:420px;overflow-y:auto;display:flex;flex-direction:column;gap:8px}
+.chunk-list::-webkit-scrollbar{width:5px}
+.chunk-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.chunk-card{background:var(--chunk);border:1px solid var(--border);border-radius:8px;padding:12px;cursor:pointer;transition:.2s;position:relative}
+.chunk-card:hover,.chunk-card.active{border-color:var(--accent);background:#1c2736}
+.chunk-meta{display:flex;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+.chunk-text{font-size:.78rem;color:var(--muted);line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.chunk-card.active .chunk-text{-webkit-line-clamp:unset;color:var(--text)}
+.chunk-num{position:absolute;top:10px;right:12px;font-size:.65rem;color:var(--muted)}
+.pagination{display:flex;align-items:center;gap:8px;margin-top:12px;justify-content:center;font-size:.82rem}
+
+/* QUERY */
+.query-box{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;color:var(--text);font-size:.88rem;resize:vertical;min-height:80px;outline:none;transition:.2s;font-family:inherit}
+.query-box:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(88,166,255,.12)}
+.query-actions{display:flex;gap:10px;margin-top:10px;align-items:center}
+.loader{display:none;width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ANSWER */
+.answer-box{background:var(--chunk);border:1px solid var(--border);border-radius:8px;padding:14px;font-size:.85rem;line-height:1.7;min-height:60px;white-space:pre-wrap;color:var(--text)}
+.answer-meta{font-size:.72rem;color:var(--muted);margin-top:8px}
+
+/* RETRIEVED CHUNKS */
+.retrieved-list{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.ret-card{background:var(--chunk);border:1px solid var(--border);border-radius:8px;padding:12px;border-left:3px solid var(--accent)}
+.ret-header{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+.score-bar-wrap{width:100%;background:var(--bg3);border-radius:4px;height:5px;margin:6px 0}
+.score-bar{height:5px;border-radius:4px;background:linear-gradient(90deg,var(--accent),var(--accent4))}
+.ret-text{font-size:.77rem;color:var(--muted);line-height:1.5}
+
+/* DIAGRAM */
+.diagram-wrap{padding:10px 0}
+.diagram-step{display:flex;align-items:flex-start;gap:14px;margin-bottom:8px}
+.d-icon{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0}
+.d-info{flex:1}
+.d-title{font-size:.82rem;font-weight:600;margin-bottom:2px}
+.d-sub{font-size:.72rem;color:var(--muted);line-height:1.4}
+.d-arrow{text-align:center;color:var(--border);font-size:1.2rem;margin:2px 0 2px 18px}
+.d-highlight{color:var(--accent);font-weight:600}
+
+/* PIPELINE VIZ */
+.pipeline{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 0}
+.pipe-node{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:.75rem;text-align:center;min-width:90px}
+.pipe-node.active-node{border-color:var(--accent);background:rgba(88,166,255,.08);color:var(--accent)}
+.pipe-node.done-node{border-color:var(--accent2);color:var(--accent2)}
+.pipe-arrow{color:var(--muted);font-size:.9rem}
+
+/* EMPTY */
+.empty{text-align:center;color:var(--muted);padding:30px;font-size:.85rem}
+.empty-icon{font-size:2rem;margin-bottom:8px}
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="logo">🔮 VWO RAG System</span>
+  <span class="nav-badge">ChromaDB + Nomic Embed + Groq</span>
+  <span class="nav-badge">llama-3.1-8b-instant</span>
+  <span style="margin-left:auto;display:flex;align-items:center;gap:8px">
+    <span class="status-dot" id="status-dot"></span>
+    <span id="status-text">Connecting…</span>
+  </span>
+</nav>
+
+<div class="container">
+
+  <!-- DB STATS -->
+  <div class="card full">
+    <div class="card-header">
+      <span>🗄️</span><span class="card-title">ChromaDB Stats</span>
+      <span class="badge badge-blue" id="db-collection">Loading…</span>
+      <button class="btn" style="margin-left:auto" onclick="loadStats()">↻ Refresh</button>
+    </div>
+    <div class="card-body">
+      <div class="stats-grid">
+        <div class="stat-item"><div class="stat-num" id="stat-total">—</div><div class="stat-label">Total Chunks</div></div>
+        <div class="stat-item"><div class="stat-num" style="font-size:1rem;color:var(--accent4)" id="stat-model">—</div><div class="stat-label">Embedding Model</div></div>
+        <div class="stat-item"><div class="stat-num" style="font-size:1rem;color:var(--accent2)" id="stat-llm">—</div><div class="stat-label">LLM (Groq)</div></div>
+      </div>
+      <div style="margin-top:12px;font-size:.75rem;color:var(--muted)">DB Path: <span id="stat-path" style="color:var(--accent)">—</span></div>
+    </div>
+  </div>
+
+  <!-- CHUNK VIEWER -->
+  <div class="card">
+    <div class="card-header">
+      <span>📄</span><span class="card-title">PDF Chunks</span>
+      <span class="badge badge-purple" id="chunk-count">0 chunks</span>
+    </div>
+    <div class="card-body">
+      <div class="chunk-controls">
+        <input class="search-input" id="chunk-search" placeholder="🔍 Filter chunks…" oninput="filterChunks()"/>
+        <select class="btn" id="page-filter" onchange="filterChunks()"><option value="">All Pages</option></select>
+      </div>
+      <div class="chunk-list" id="chunk-list">
+        <div class="empty"><div class="empty-icon">⏳</div>Loading chunks… (run ingest.py first)</div>
+      </div>
+      <div class="pagination">
+        <button class="btn" onclick="prevPage()">‹ Prev</button>
+        <span id="page-info" style="color:var(--muted)">Page 1</span>
+        <button class="btn" onclick="nextPage()">Next ›</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- QUERY PANEL -->
+  <div class="card">
+    <div class="card-header">
+      <span>💬</span><span class="card-title">Ask a Question</span>
+      <span class="badge badge-green">RAG Pipeline</span>
+    </div>
+    <div class="card-body">
+
+      <!-- Pipeline Viz -->
+      <div class="pipeline" id="pipeline">
+        <div class="pipe-node" id="p1">📝 Query</div>
+        <span class="pipe-arrow">→</span>
+        <div class="pipe-node" id="p2">🧠 Nomic Embed</div>
+        <span class="pipe-arrow">→</span>
+        <div class="pipe-node" id="p3">🗄️ ChromaDB</div>
+        <span class="pipe-arrow">→</span>
+        <div class="pipe-node" id="p4">📚 Top-K Chunks</div>
+        <span class="pipe-arrow">→</span>
+        <div class="pipe-node" id="p5">🤖 Groq LLM</div>
+        <span class="pipe-arrow">→</span>
+        <div class="pipe-node" id="p6">✅ Answer</div>
+      </div>
+
+      <textarea class="query-box" id="query-input" placeholder="Ask about the VWO Login Dashboard PRD…&#10;e.g. What are the login requirements? What security features are mentioned?"></textarea>
+      <div class="query-actions">
+        <button class="btn btn-primary" onclick="runQuery()" id="query-btn">🚀 Ask Groq</button>
+        <div class="loader" id="loader"></div>
+        <span style="font-size:.75rem;color:var(--muted);margin-left:auto">Top-5 chunks retrieved</span>
+      </div>
+
+      <div style="margin-top:16px">
+        <div style="font-size:.8rem;color:var(--muted);margin-bottom:8px;font-weight:600">🤖 Answer</div>
+        <div class="answer-box" id="answer-box"><span style="color:var(--muted)">Answer will appear here…</span></div>
+        <div class="answer-meta" id="answer-meta"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RETRIEVAL DIAGRAM -->
+  <div class="card full">
+    <div class="card-header">
+      <span>🔍</span><span class="card-title">Retrieval Diagram — Which Chunks Were Fetched</span>
+      <span class="badge badge-red" id="ret-count">0 results</span>
+    </div>
+    <div class="card-body">
+      <div id="diagram-wrap" class="diagram-wrap">
+        <div class="empty"><div class="empty-icon">🔍</div>Ask a question to see retrieval flow diagram</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API = "http://localhost:5001/api";
+let allChunks = [], filtered = [], curPage = 1;
+const PER_PAGE = 12;
+
+// ── Status check ──────────────────────────────────────────────────────────────
+async function checkStatus(){
+  try{
+    const r = await fetch(API+"/db_stats");
+    if(r.ok){ document.getElementById("status-dot").className="status-dot ok"; document.getElementById("status-text").textContent="Server Online"; }
+    else throw new Error();
+  }catch{ document.getElementById("status-text").textContent="Server Offline"; }
+}
+
+// ── DB Stats ─────────────────────────────────────────────────────────────────
+async function loadStats(){
+  try{
+    const d = await (await fetch(API+"/db_stats")).json();
+    document.getElementById("stat-total").textContent   = d.total_docs ?? "—";
+    document.getElementById("stat-model").textContent   = d.embed_model?.split("/").pop() ?? "—";
+    document.getElementById("stat-llm").textContent     = d.groq_model ?? "—";
+    document.getElementById("stat-path").textContent    = d.db_path ?? "—";
+    document.getElementById("db-collection").textContent= d.collection ?? "—";
+  }catch(e){ console.error(e); }
+}
+
+// ── Chunks ────────────────────────────────────────────────────────────────────
+async function loadChunks(){
+  try{
+    const d = await (await fetch(API+"/chunks")).json();
+    allChunks = d.chunks || [];
+    document.getElementById("chunk-count").textContent = allChunks.length+" chunks";
+    // Build page filter
+    const pages = [...new Set(allChunks.map(c=>c.page))].sort((a,b)=>a-b);
+    const sel = document.getElementById("page-filter");
+    pages.forEach(p=>{const o=document.createElement("option");o.value=p;o.textContent="Page "+p;sel.appendChild(o);});
+    filterChunks();
+  }catch(e){ document.getElementById("chunk-list").innerHTML='<div class="empty"><div class="empty-icon">❌</div>Could not load chunks.<br>Run <code>python ingest.py</code> first.</div>'; }
+}
+
+function filterChunks(){
+  const q = document.getElementById("chunk-search").value.toLowerCase();
+  const pg = document.getElementById("page-filter").value;
+  filtered = allChunks.filter(c=>{
+    const matchText = !q || c.text.toLowerCase().includes(q);
+    const matchPage = !pg || String(c.page)===pg;
+    return matchText && matchPage;
+  });
+  curPage = 1;
+  renderChunks();
+}
+
+function renderChunks(){
+  const list = document.getElementById("chunk-list");
+  const start = (curPage-1)*PER_PAGE, end = start+PER_PAGE;
+  const slice = filtered.slice(start, end);
+  if(!slice.length){ list.innerHTML='<div class="empty"><div class="empty-icon">🔍</div>No chunks match</div>'; return; }
+  list.innerHTML = slice.map((c,i)=>`
+    <div class="chunk-card" onclick="this.classList.toggle('active')" id="cc-${start+i}">
+      <div class="chunk-meta">
+        <span class="badge badge-blue">Chunk #${c.chunk_i}</span>
+        <span class="badge badge-purple">Page ${c.page}</span>
+        <span class="badge badge-green">${c.text.length} chars</span>
+      </div>
+      <div class="chunk-text">${escHtml(c.text)}</div>
+      <span class="chunk-num">${start+i+1}/${filtered.length}</span>
+    </div>`).join("");
+  const total = Math.ceil(filtered.length/PER_PAGE);
+  document.getElementById("page-info").textContent = `Page ${curPage} / ${total}`;
+}
+
+function prevPage(){ if(curPage>1){curPage--;renderChunks();} }
+function nextPage(){ const t=Math.ceil(filtered.length/PER_PAGE); if(curPage<t){curPage++;renderChunks();} }
+
+// ── Query ─────────────────────────────────────────────────────────────────────
+async function runQuery(){
+  const q = document.getElementById("query-input").value.trim();
+  if(!q) return;
+
+  // Animate pipeline
+  animatePipeline();
+
+  document.getElementById("query-btn").disabled = true;
+  document.getElementById("loader").style.display = "block";
+  document.getElementById("answer-box").innerHTML = '<span style="color:var(--muted)">Thinking…</span>';
+  document.getElementById("ret-count").textContent = "Querying…";
+
+  try{
+    const res = await fetch(API+"/query",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({question:q})});
+    const d   = await res.json();
+    if(d.error){ document.getElementById("answer-box").textContent = "❌ "+d.error; return; }
+
+    document.getElementById("answer-box").textContent   = d.answer;
+    document.getElementById("answer-meta").textContent  = `Model: ${d.model} | Retrieved: ${d.retrieved.length} chunks`;
+    document.getElementById("ret-count").textContent    = d.retrieved.length+" results";
+    renderDiagram(q, d.retrieved);
+    finishPipeline();
+  }catch(e){
+    document.getElementById("answer-box").textContent = "❌ Server error: "+e.message;
+  }finally{
+    document.getElementById("query-btn").disabled = false;
+    document.getElementById("loader").style.display = "none";
+  }
+}
+
+// ── Retrieval Diagram ─────────────────────────────────────────────────────────
+function renderDiagram(question, chunks){
+  const colors = ["var(--accent)","var(--accent4)","var(--accent2)","#ffa657","var(--accent3)"];
+  let html = `
+    <div class="diagram-step">
+      <div class="d-icon" style="background:rgba(88,166,255,.15)">📝</div>
+      <div class="d-info">
+        <div class="d-title">User Query</div>
+        <div class="d-sub">"<span class="d-highlight">${escHtml(question)}</span>"</div>
+      </div>
+    </div>
+    <div class="d-arrow">↓ Nomic Embed → vector</div>
+    <div class="diagram-step">
+      <div class="d-icon" style="background:rgba(210,168,255,.15)">🧠</div>
+      <div class="d-info">
+        <div class="d-title">ChromaDB Cosine Search</div>
+        <div class="d-sub">Top-${chunks.length} chunks retrieved from collection <span class="d-highlight">vwo_prd</span></div>
+      </div>
+    </div>
+    <div class="d-arrow">↓ Retrieved Chunks</div>
+    <div class="retrieved-list">`;
+
+  chunks.forEach((c,i)=>{
+    const pct = Math.round(c.score*100);
+    html+=`
+      <div class="ret-card" style="border-left-color:${colors[i%colors.length]}">
+        <div class="ret-header">
+          <span class="badge badge-blue">Rank #${c.rank}</span>
+          <span class="badge badge-purple">Page ${c.page}</span>
+          <span class="badge badge-green">Score ${c.score}</span>
+          <span class="badge" style="background:rgba(255,166,87,.1);color:#ffa657;border:1px solid rgba(255,166,87,.3)">Chunk #${c.chunk_i}</span>
+        </div>
+        <div class="score-bar-wrap"><div class="score-bar" style="width:${pct}%;background:linear-gradient(90deg,${colors[i%colors.length]},${colors[(i+1)%colors.length]})"></div></div>
+        <div class="ret-text">${escHtml(c.text.slice(0,280))}${c.text.length>280?"…":""}</div>
+      </div>`;
+  });
+
+  html+=`</div>
+    <div class="d-arrow">↓ Context injected into Groq (llama-3.1-8b-instant)</div>
+    <div class="diagram-step">
+      <div class="d-icon" style="background:rgba(63,185,80,.15)">✅</div>
+      <div class="d-info">
+        <div class="d-title">Final Answer Generated</div>
+        <div class="d-sub">Groq synthesises the answer from the ${chunks.length} retrieved chunks above</div>
+      </div>
+    </div>`;
+
+  document.getElementById("diagram-wrap").innerHTML = html;
+}
+
+// ── Pipeline animation ────────────────────────────────────────────────────────
+const NODES = ["p1","p2","p3","p4","p5","p6"];
+let pipeTimer = null;
+function animatePipeline(){
+  NODES.forEach(id=>{ document.getElementById(id).className="pipe-node"; });
+  let i=0;
+  clearInterval(pipeTimer);
+  pipeTimer = setInterval(()=>{
+    if(i>0) document.getElementById(NODES[i-1]).className="pipe-node done-node";
+    if(i<NODES.length) { document.getElementById(NODES[i]).className="pipe-node active-node"; i++; }
+    else clearInterval(pipeTimer);
+  },400);
+}
+function finishPipeline(){ NODES.forEach(id=>document.getElementById(id).className="pipe-node done-node"); }
+
+// ── Utils ─────────────────────────────────────────────────────────────────────
+function escHtml(t){ return t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+document.getElementById("query-input").addEventListener("keydown",e=>{
+  if(e.key==="Enter" && (e.ctrlKey||e.metaKey)) runQuery();
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+(async()=>{ await checkStatus(); await loadStats(); await loadChunks(); })();
+</script>
+</body>
+</html>
