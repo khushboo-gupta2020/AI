@@ -49,5 +49,6 @@ Thumbs.db
 
 # Dependencies
 node_modules/
+.env
 .env.local
 .vite/
